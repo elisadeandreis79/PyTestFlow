@@ -1,5 +1,4 @@
 from pytestflow.core.sequence import TestSequence
-from pytestflow.steps.message_pop_up import message_pop_up_step
 from pytestflow.steps.pass_fail import pass_fail_step
 from pytestflow.steps.numeric_limit import numeric_limit_step
 from pytestflow.steps.df_numeric_limits import df_numeric_limits_step
@@ -97,11 +96,6 @@ def create_power_on_subsequence() -> TestSequence:
     )
 
 
-# --- Action Step ---
-@message_pop_up_step(name="pop_up_test")
-def msg_pop_up():
-    return "TEST TEST Message Pop-Up Step Executed"
-
 
 # --------------------
 # MAIN MOTHERBOARD TEST SEQUENCE
@@ -111,7 +105,6 @@ def motherboard_sequence() -> TestSequence:
         name="MotherboardTestSequence",
         setup_steps=[store_mb_info],
         main_steps=[
-            msg_pop_up,
             serial_number_check,
             lot_code_check,
             vcore_voltage_check,

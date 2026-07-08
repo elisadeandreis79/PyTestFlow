@@ -1,4 +1,3 @@
-import pickle
 from pytestflow.core.sequence import Sequence
 from pytestflow.steps.action_step import action_step
 from pytestflow.core.context import ptf_context
@@ -8,12 +7,10 @@ from pytestflow.backend.report_manager import report_manager
 import sys
 from pathlib import Path
 
-# path relativo alla cartella che contiene reporting
 PROCESS_MODELS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROCESS_MODELS_DIR))
 
-# ora questo funziona come vuoi
-from reporting.html_report import generate_html_report
+from bootstrap_templates.process_models.reporting.html_report import report_callback_jinja
 
 
 # ---------------------
@@ -37,28 +34,6 @@ def post_uut_callback():
     print("📝 Post-UUT executed.")
     pass
 
-# ✅ Report (placeholder)
-@action_step(name="report_callback")
-def report_callback():
-    # DEBUG save state snapshot for debugging / uncomment if needed
-    # with open("C:\\PRIVATO\\SW\\PyTestFlow\\PyTestFlow-main\\test_reports\\dataf_for_report.pkl", "wb") as f:
-    #     pickle.dump(ptf_context.locals, f)
-
-    main_results = ptf_context.locals.get("main_results") or ptf_context.locals.get("main_result")
-    if main_results is None:
-        raise ValueError("Main sequence results are missing. Expected 'main_results' in context.")
-    
-    _pre_uut_user_response =  ptf_context.locals.get("_pre_uut_user_response")
-    sn = ""
-    if _pre_uut_user_response:
-        sn = _pre_uut_user_response.get("text", "")
-    
-    report_path = generate_html_report(sn, main_results)
-    
-    report_manager.set_last_report(report_path)
-
-    print(f"📝 HTML report generated: {report_path}")
-    return report_path
 
 # ✅ Database logging (placeholder)
 @action_step(name="database_logging_callback")
@@ -67,12 +42,11 @@ def database_logging_callback():
     return "DB logging done"
 
 
-
 DEFAULT_CALLBACKS = {
     "pre_uut": pre_uut_callback,
     "main_sequence": None,           # mandatory
     "post_uut": post_uut_callback,
-    "report": report_callback,
+    "report": report_callback_jinja,
     "database_logging": database_logging_callback,
 }
 
@@ -82,13 +56,11 @@ class SequentialProcessModel(Sequence):
         self,
         name: str = "SequentialProcessModel",
         callbacks: dict | None = None,
-        cancel_action: str = "end",
     ):
         # Validate main sequence presence
         callbacks = callbacks or {}
         # Merge with defaults
         self.callbacks = {**DEFAULT_CALLBACKS, **callbacks}
-        self.cancel_action = cancel_action
         self._pre_uut_step_name = None
 
         assert self.callbacks["main_sequence"] is not None, "Main Seq callback must be provided."
@@ -97,24 +69,11 @@ class SequentialProcessModel(Sequence):
         if pre_uut_step is not None:
             self._pre_uut_step_name = getattr(pre_uut_step, "name", getattr(pre_uut_step, "__name__", "pre_uut"))
 
-        @flow_control_step(name="pre_uut_flow_gate")
+        @flow_control_step(name="pre_uut_flow_gate", next_steps={0: "end", 1: "next"})
         def pre_uut_flow_gate():
             user_response = ptf_context.locals.get("_pre_uut_user_response")
             button = self._extract_button_from_response(user_response)
-
-            if button == "cancel":
-                ptf_context.locals["_ptf_next_step"] = self.cancel_action
-                return {
-                    "decision": self.cancel_action,
-                    "reason": "pre_uut_cancel",
-                    "user_response": user_response,
-                }
-
-            return {
-                "decision": "next",
-                "reason": "pre_uut_continue",
-                "user_response": user_response,
-            }
+            return button == "run"
 
         steps = []
         if pre_uut_step is not None:
@@ -179,4 +138,4 @@ class SequentialProcessModel(Sequence):
             ptf_context.locals["_pre_uut_user_response"] = self._extract_pre_uut_user_response(state)
         return name, state
 
-
+PROCESS_MODEL = SequentialProcessModel

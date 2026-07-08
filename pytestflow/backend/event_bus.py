@@ -17,7 +17,6 @@ class EventBus:
         await self._queue.put((cmd_name, data))
 
     async def start(self):
-        print("Starting event bus...")
         while True:
             cmd_name, data = await self._queue.get()
             for callback in self._subscribers[cmd_name]:

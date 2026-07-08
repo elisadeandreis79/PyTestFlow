@@ -4,3 +4,4 @@ numpy
 rich
 bottle
 fakeredis==2.34.1
+jinja2

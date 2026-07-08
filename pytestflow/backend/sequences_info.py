@@ -4,8 +4,16 @@ from pytestflow.core.sequence import TestSequence
 import sys
 from pathlib import Path
 import json
-from pytestflow.backend.uuids_handler import get_root_sequence_uuid, walk_sequence, resolve_uuids
+from pytestflow.backend.uuids_handler import resolve_uuids
 from pytestflow.config.config_manager import ConfigManager
+from pytestflow.steps.action_step import ActionStep # pyright: ignore[reportUnusedImport]
+from pytestflow.steps.pass_fail import PassFailStep # pyright: ignore[reportUnusedImport]
+from pytestflow.steps.numeric_limit import NumericLimitStep # pyright: ignore[reportUnusedImport]
+from pytestflow.steps.string_check import StringCheckStep # pyright: ignore[reportUnusedImport]
+from pytestflow.steps.df_numeric_limits import DFNumericLimitsStep # pyright: ignore[reportUnusedImport]
+from pytestflow.steps.waveform_limit import WaveformLimitStep # pyright: ignore[reportUnusedImport]
+from pytestflow.steps.message_pop_up import MessagePopUpStep # pyright: ignore[reportUnusedImport]
+from pytestflow.steps.flow_control import FlowControlStep # pyright: ignore[reportUnusedImport]
 
 config = ConfigManager()
 
@@ -15,7 +23,6 @@ def get_available_sequences():
     sequences = []
     try:
         SEQUENCES_FOLDER = config.get_path("test_sequences")
-        print(f"Looking for sequences in: {SEQUENCES_FOLDER}")
         seq_folder = Path(SEQUENCES_FOLDER)
         if seq_folder.exists() and seq_folder.is_dir():
             for file in seq_folder.glob("*.py"):
@@ -41,13 +48,14 @@ def get_seq_structure_recursive(sequence):
         for step in step_list:
             # Prefect Task
             if isinstance(step, (
-                pytestflow.steps.action_step.ActionStep,
-                pytestflow.steps.pass_fail.PassFailStep,
-                pytestflow.steps.numeric_limit.NumericLimitStep,
-                pytestflow.steps.string_check.StringCheckStep,
-                pytestflow.steps.df_numeric_limits.DFNumericLimitsStep,
-                pytestflow.steps.waveform_limit.WaveformLimitStep,
-                pytestflow.steps.message_pop_up.MessagePopUpStep
+                ActionStep,
+                PassFailStep,
+                NumericLimitStep,
+                StringCheckStep,
+                DFNumericLimitsStep,
+                WaveformLimitStep,
+                MessagePopUpStep,
+                FlowControlStep
             )):
                 result.append(get_single_step(step))
 

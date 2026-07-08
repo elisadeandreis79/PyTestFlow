@@ -14,7 +14,7 @@ import pandas as pd
     name="operator_confirmation",
     title="Operator Check",
     msg="Confirm fixture and DUT are connected, then press Continue.",
-    buttons=["Continue", "Cancel"],
+    buttons=["Ok", "Other Option 1", "Other Option 2"],
     show_response_box=False,
 )
 def operator_confirmation():

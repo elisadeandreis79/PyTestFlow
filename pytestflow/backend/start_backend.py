@@ -12,12 +12,6 @@ from pytestflow.config.config_manager import ConfigManager
 
 CONFIG = ConfigManager().get_config()
 
-print("Loaded configuration:---------------")
-print(CONFIG)
-print("-----------------------------------")
-
-
-
 # --------------------
 # Paths
 # --------------------
@@ -52,7 +46,6 @@ def assets(filepath):
 
 @app.route("/config.json")
 def config():
-    print("Serving config.json")
     response.content_type = 'application/json'
     return {
         "wsPort": CONFIG["websocket"]["port"],

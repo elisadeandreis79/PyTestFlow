@@ -36,6 +36,15 @@ pip install --upgrade pip setuptools wheel
 pip install -r requirements.txt
 ```
 
+Optional reporting extension:
+
+```bash
+pip install jinja2
+```
+
+This enables the opt-in Jinja HTML report callback/template pipeline while
+keeping the legacy HTML reporter unchanged.
+
 3. Install PyTestFlow.
 
 

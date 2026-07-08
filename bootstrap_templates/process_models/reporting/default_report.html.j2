@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ title }}</title>
+  <style>
+  {{ css_text }}
+  </style>
+</head>
+<body>
+  <h1>
+    {{ title }}
+    <span class="badge {{ top_status_class }}">{{ top_status }}</span>
+  </h1>
+
+  <div class="meta">
+    <div><b>Generated:</b> {{ generated_at }}</div>
+    {% if top_message %}
+    <div><b>Message:</b> {{ top_message }}</div>
+    {% endif %}
+    <div><b>State Type:</b> <code class="inline">{{ top_type }}</code></div>
+    <div>
+      <b>Steps:</b>
+      {{ stats.total }} total -
+      {{ stats.passed }} passed /
+      {{ stats.failed }} failed /
+      {{ stats.done }} done /
+      {{ stats.other }} other
+    </div>
+  </div>
+
+  <h2>Summary</h2>
+  <table class="summary-table">
+    <thead>
+      <tr>
+        <th width="60">#</th>
+        <th>Step</th>
+        <th width="120">Status</th>
+        <th width="120">State</th>
+        <th width="120">Subsequence</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in summary_rows %}
+      <tr>
+        <td>{{ "%03d"|format(row.index) }}</td>
+        <td><a href="#{{ row.anchor_id }}">{{ row.label }}</a></td>
+        <td><span class="badge {{ row.status_class }}">{{ row.status }}</span></td>
+        <td><code class="inline">{{ row.type_label }}</code></td>
+        <td><code class="inline">{{ "Yes" if row.is_subsequence else "No" }}</code></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Contents</h2>
+  <ul class="toc">
+    {% for item in details %}
+      <li style="margin-left: {{ item.depth * 12 }}px;">
+        <a href="#{{ item.anchor_id }}">{{ item.display_label }}</a>
+      </li>
+    {% endfor %}
+  </ul>
+
+  <h2>Details</h2>
+  {% for item in details %}
+    <div id="{{ item.anchor_id }}" class="{{ 'indent' if item.depth > 0 else '' }}">
+      <h3>
+        {{ item.display_label }}
+        <span class="badge {{ item.status_class }}">{{ item.status }}</span>
+      </h3>
+
+      <div class="row">
+        <div><b>PyTestFlow State:</b> <code class="inline">{{ item.meta.ptf_state_type }}</code></div>
+        <div><b>Prefect State:</b> <code class="inline">{{ item.meta.prefect_state_type }}</code></div>
+        {% if item.meta.step_type %}
+        <div><b>Step Type:</b> <code class="inline">{{ item.meta.step_type }}</code></div>
+        {% endif %}
+        {% if item.meta.run_id_value %}
+        <div><b>{{ item.meta.run_id_label }}:</b> <code class="inline">{{ item.meta.run_id_value }}</code></div>
+        {% endif %}
+        {% if item.message %}
+        <div><b>Message:</b> {{ item.message }}</div>
+        {% endif %}
+      </div>
+
+      {% if item.step_details %}
+      <table class="summary-table">
+        <thead>
+          <tr><th colspan="2">Step Details</th></tr>
+        </thead>
+        <tbody>
+          {% for key, value in item.step_details.items() %}
+          <tr>
+            <td><b>{{ key }}</b></td>
+            <td>{{ value }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+
+      {% if item.meta.additional_info %}
+      <table class="summary-table">
+        <thead>
+          <tr><th colspan="2">Additional Info</th></tr>
+        </thead>
+        <tbody>
+          {% for key, value in item.meta.additional_info.items() %}
+          <tr>
+            <td><b>{{ key }}</b></td>
+            <td>{{ value }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+  {% endfor %}
+</body>
+</html>

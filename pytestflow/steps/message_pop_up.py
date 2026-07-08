@@ -7,14 +7,15 @@ from pytestflow.core.runtime_control import runtime_control
 
 
 class MessagePopUpStep(StepWrapper):
-    def __init__(self, fn, *, show_response_box=False, title="", msg="", buttons=[], name=None, autowire=True, **task_kwargs):
+    def __init__(self, fn, *, show_response_box=False, title="", msg="", buttons=[], name=None, store_as=None, autowire=True, **task_kwargs):
         super().__init__(fn, name=name, autowire=autowire, **task_kwargs)
         self.step_type = "message_pop_up"
         self.show_response_box = show_response_box
         self.title = title
         self.msg = msg
         self.buttons = buttons
-
+        self.store_as = store_as
+        
     def _run(self, *args, **kwargs):
         # Executes inside the Prefect task created by StepWrapper
         value = super()._run(*args, **kwargs)
@@ -25,6 +26,11 @@ class MessagePopUpStep(StepWrapper):
                 "buttons": self.buttons
             }        
         user_response = runtime_control.show_popup(popup_data)
+        
+        if self.store_as:
+            from pytestflow.core.context import ptf_context
+            ptf_context.locals[self.store_as] = user_response
+
         result_data = {
             "step_status": "done",
             "step_type": self.step_type,
@@ -41,7 +47,7 @@ class MessagePopUpStep(StepWrapper):
             PyTestflowDone(ptf_result=result_data)
         )
 
-def message_pop_up_step(*, show_response_box=False, title="TITLE_HERE", msg="MSG_HERE", buttons=["Ok"], name=None, autowire=True, **task_kwargs):
+def message_pop_up_step(*, show_response_box=False, title="TITLE_HERE", msg="MSG_HERE", buttons=["Ok"], name=None, store_as=None, autowire=True, **task_kwargs):
     """
     Decorator factory for message pop-up steps.
     """
@@ -54,6 +60,7 @@ def message_pop_up_step(*, show_response_box=False, title="TITLE_HERE", msg="MSG
             msg=msg, 
             buttons=buttons, 
             name=name, 
+            store_as=store_as,
             autowire=autowire,
             **task_kwargs)
     return decorator
