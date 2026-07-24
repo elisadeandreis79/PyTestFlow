@@ -26,7 +26,6 @@ class Sequence:
         self.allow_parent_mutation = allow_parent_mutation
         self.apply_throttle = apply_throttle
         self.results: List[tuple[str, PyTestflowState]] = []
-        self._locals_stack: List[dict] = []  # Stack to manage ptf_context.locals
         self.default_parameters = default_parameters or {}
         self.max_transitions = 10_000
 
@@ -66,32 +65,12 @@ class Sequence:
 
         # Check if the step is a Sequence
         if isinstance(step_fn, Sequence):
-            # Push current locals onto the stack
-            # Snapshot caller state
-            caller_snapshot = ptf_context.locals.copy()
-            self._locals_stack.append(caller_snapshot)
-            
-            #initialize called sequence context
-            ptf_context.locals.clear()  # Clear locals for the subsequence
-            
-            if step_fn.allow_parent_mutation:
-                # Live pointer to caller's local space
-                ptf_context.locals["__caller__"] = caller_snapshot
-            else:
-                # Read-only wrapper around a disposable copy
-                class ReadOnlyDict(dict):
-                    def __setitem__(self, k, v): raise RuntimeError("Caller context is read-only")
-                    def update(self, *a, **kw): raise RuntimeError("Caller context is read-only")
-                
-                ptf_context.locals["__caller__"] = ReadOnlyDict(caller_snapshot.copy()) # disposable copy
-            
-            try:
+            child_context = ptf_context.create_child_context(
+                allow_parent_mutation=step_fn.allow_parent_mutation
+            )
+            with ptf_context.bind(child_context):
                 # Run the subsequence
                 state = step_fn.run(return_state=True)  # returns PyTestflowState
-                #step_name = state.ptf_result['step_name']
-            finally:
-                # Restore parent locals
-                ptf_context.locals = self._locals_stack.pop()
         
         else:
             # Execute a regular step

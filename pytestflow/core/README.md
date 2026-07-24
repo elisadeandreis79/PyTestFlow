@@ -11,7 +11,9 @@ See the [project README](../../readme.md) for an overview and
 
 ## Context management
 
-`ptf_context` is a singleton `TestContext` that exposes four useful attributes:
+`ptf_context` is a singleton `TestContext` proxy. The public import remains
+stable while access is routed to the `ExecutionContext` bound to the current
+execution branch.
 
 - `globals` – values shared across the entire process model run.
 - `locals` – values scoped to the currently executing sequence.
@@ -29,6 +31,31 @@ from pytestflow.core import ptf_context, step
 def load_config():
     ptf_context.globals["serial"] = "ABC123"
 ```
+
+Code that launches a parallel branch first captures an isolated context and
+then binds it around that branch's execution:
+
+```python
+branch_context = ptf_context.create_parallel_context(
+    parameters={"serial": "ABC123"},
+)
+
+with ptf_context.bind(branch_context):
+    run_parallel_work()
+```
+
+Parallel contexts receive independent mutable locals, results, and
+`current_step`. Parent locals are available as the read-only
+`ptf_context.locals["__caller__"]` snapshot, while globals are also a read-only
+snapshot. Snapshot values are deep-copied by default; callers may pass a
+different `copy_fn` for values such as instrument sessions that require an
+application-specific copying policy. An optional `parallel_endpoint` can be
+attached when the branch context is created.
+
+Live parent mutation is intentionally unavailable for parallel contexts:
+`create_parallel_context(allow_parent_mutation=True)` raises `ValueError`.
+Ordinary synchronous subsequences retain their existing
+`allow_parent_mutation` behavior.
 
 ## Step wrapper
 

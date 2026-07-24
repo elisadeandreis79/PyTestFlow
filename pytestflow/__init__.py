@@ -1,6 +1,8 @@
 from pytestflow.core import (
     step,
     ptf_context,
+    ExecutionContext,
+    TestContext,
     PyTestflowPassed,
     PyTestflowFailed,
     PyTestflowDone,
@@ -11,6 +13,8 @@ from pytestflow.core import (
 __all__ = [
     "step",
     "ptf_context",
+    "ExecutionContext",
+    "TestContext",
     "PyTestflowPassed",
     "PyTestflowFailed",
     "PyTestflowDone",
