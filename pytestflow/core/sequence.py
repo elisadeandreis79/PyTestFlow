@@ -1,4 +1,5 @@
 from datetime import datetime
+from functools import wraps
 import uuid
 from prefect import flow
 from typing import Any, Callable, List, Iterable
@@ -10,6 +11,15 @@ import inspect
 
 from pytestflow.core.utils import get_data_for_gui
 from pytestflow.core.runtime_control import runtime_control
+
+
+def _with_sequence_execution_registry(fn):
+    @wraps(fn)
+    def wrapped(sequence, *args, **kwargs):
+        with ptf_context.sequence_execution(sequence.name):
+            return fn(sequence, *args, **kwargs)
+
+    return wrapped
 
 
 class Sequence:
@@ -184,6 +194,7 @@ class Sequence:
         return results, runtime_start_index + transitions
 
     @flow(name="SequenceRun", persist_result=False)
+    @_with_sequence_execution_registry
     def run(self, parameters: dict | None = None) -> PyTestflowState:
         print(f"\n▶️ Running Sequence: {self.name}")
         self.results = []
@@ -216,6 +227,7 @@ class Sequence:
 
 
     @flow(name="SequenceRunStep")
+    @_with_sequence_execution_registry
     def run_step(self, names: str | Iterable[str]) -> PyTestflowState:
         if isinstance(names, str):
             wanted = {names}
@@ -270,6 +282,7 @@ class TestSequence(Sequence):
         )
 
     @flow(name="TestSequenceRun")
+    @_with_sequence_execution_registry
     def run(self) -> PyTestflowState:
         print(f"\n▶️ Running Test Sequence: {self.name}")
         
@@ -308,6 +321,7 @@ class TestSequence(Sequence):
         return overall
 
     @flow(name="TestSequenceRunStep")
+    @_with_sequence_execution_registry
     def run_step(self, names: str | Iterable[str]) -> PyTestflowState:
         if isinstance(names, str):
             wanted = {names}
@@ -346,6 +360,7 @@ class TestSequence(Sequence):
 
         return overall
 
+    @_with_sequence_execution_registry
     def run_step(self, step_name: str, return_state: bool = False):
         """
         Run a specific step in the sequence, including setup and cleanup steps.

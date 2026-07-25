@@ -57,6 +57,29 @@ Live parent mutation is intentionally unavailable for parallel contexts:
 Ordinary synchronous subsequences retain their existing
 `allow_parent_mutation` behavior.
 
+## Parallel sequence handles
+
+`ParallelSequenceHandle` is the public boundary around the Prefect future used
+to execute a parallel subsequence. Callers can inspect `done()` and `status()`,
+exchange small messages with the child, and collect a `PyTestflowState` with
+either `wait()` or `result()`.
+
+Successful results and terminal infrastructure failures are cached, so
+repeated collection returns the same state without resolving the Prefect future
+again. Infrastructure exceptions are converted to `PyTestflowError`; the
+original exception, qualified type, representation, and traceback remain
+available in `ptf_result`. A timeout also returns `PyTestflowError`, but is not
+cached because the child may still finish and be collected later.
+
+Each sequence run owns a private handle registry. The orchestration layer can
+optionally expose a handle in `ptf_context.locals` under a user-facing name,
+while later lookups continue to use the private registry as the authoritative
+source.
+
+Message exchange is bidirectional. `handle.send()` writes to the child endpoint,
+and `handle.drain_messages()` reads messages sent by that endpoint. Payloads are
+deep-copied before enqueueing to avoid cross-thread mutation after send.
+
 ## Step wrapper
 
 `@step` wraps a plain function with the `Step` class, which in turn wraps the

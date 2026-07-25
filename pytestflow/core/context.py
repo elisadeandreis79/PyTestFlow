@@ -8,7 +8,14 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
 from types import MappingProxyType
-from typing import Any, Iterator
+from typing import TYPE_CHECKING, Any, Iterator
+from uuid import UUID
+
+if TYPE_CHECKING:
+    from pytestflow.core.parallel import (
+        ParallelSequenceHandle,
+        _ParallelSequenceRegistry,
+    )
 
 
 CopyFunction = Callable[[Any], Any]
@@ -25,6 +32,10 @@ class ExecutionContext:
     )
     current_step: Any | None = None
     parallel_endpoint: Any | None = None
+    _parallel_registries: list[_ParallelSequenceRegistry] = field(
+        default_factory=list,
+        repr=False,
+    )
     context_created_timestamp: datetime = field(default_factory=datetime.now)
 
     @property
@@ -146,6 +157,50 @@ class TestContext:
             globals=globals_snapshot,
             parallel_endpoint=parallel_endpoint,
         )
+
+    @contextmanager
+    def sequence_execution(self, sequence_name: str) -> Iterator[Any]:
+        """Create the authoritative handle registry for one sequence run."""
+        from pytestflow.core.parallel import _ParallelSequenceRegistry
+
+        registry = _ParallelSequenceRegistry(sequence_name)
+        context = self.get()
+        context._parallel_registries.append(registry)
+        try:
+            yield registry
+        finally:
+            popped = context._parallel_registries.pop()
+            if popped is not registry:
+                raise RuntimeError("parallel sequence registry stack is corrupted")
+
+    def register_parallel_handle(
+        self,
+        handle: ParallelSequenceHandle,
+        *,
+        store_as: str | None = None,
+    ) -> ParallelSequenceHandle:
+        """Register a handle in the active sequence execution."""
+        registry = self._current_parallel_registry()
+        return registry.register(
+            handle,
+            store_as=store_as,
+            locals_store=self.locals,
+        )
+
+    def get_parallel_handle(
+        self,
+        reference: UUID | str | ParallelSequenceHandle,
+    ) -> ParallelSequenceHandle:
+        """Resolve a handle from the authoritative active registry."""
+        return self._current_parallel_registry().get(reference)
+
+    def _current_parallel_registry(self) -> _ParallelSequenceRegistry:
+        registries = self.get()._parallel_registries
+        if not registries:
+            raise RuntimeError(
+                "No active sequence execution owns a parallel handle registry"
+            )
+        return registries[-1]
 
     @property
     def locals(self) -> dict[str, Any]:
