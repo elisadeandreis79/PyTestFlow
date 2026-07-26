@@ -6,7 +6,6 @@ from pytestflow.core.runtime_control import runtime_control
 from pytestflow.core.sequence import TestSequence
 from bootstrap_templates.process_models.sequential_model import SequentialProcessModel
 from pytestflow.steps.action_step import action_step
-from pytestflow.steps.flow_control import flow_control_step
 
 
 @pytest.fixture(autouse=True)
@@ -24,12 +23,12 @@ def clear_context():
     runtime_control.set_throttle_ms(5.0)
 
 
-@flow_control_step(name="pre_uut_cancel")
+@action_step(name="pre_uut_cancel")
 def pre_uut_cancel():
     return {"button": "cancel"}
 
 
-@flow_control_step(name="pre_uut_run")
+@action_step(name="pre_uut_run")
 def pre_uut_run():
     return {"button": "run"}
 
@@ -54,7 +53,6 @@ def test_sequential_model_cancel_ends_before_main():
             "report": None,
             "database_logging": None,
         },
-        cancel_action="end",
     )
 
     result = model.run(return_state=True)
@@ -75,7 +73,6 @@ def test_sequential_model_run_executes_main_and_post():
             "report": None,
             "database_logging": None,
         },
-        cancel_action="end",
     )
 
     result = model.run(return_state=True)
@@ -122,7 +119,6 @@ def test_sequential_model_does_not_throttle_orchestration_but_throttles_main_seq
             "report": None,
             "database_logging": None,
         },
-        cancel_action="end",
     )
 
     result = model.run(return_state=True)
