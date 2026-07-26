@@ -7,6 +7,17 @@ from pytestflow.core.pytestflow_states import (
     PyTestflowPassed, PyTestflowFailed, PyTestflowDone, PyTestflowError, PyTestflowState
 )
 from pytestflow.core.context import ptf_context
+from pytestflow.core.parallel import (
+    ParallelSequenceEvent,
+    ParallelSequenceEventKind,
+    ParallelSequenceHandle,
+    ParallelSequenceStart,
+    ParallelSequenceWait,
+    ParallelSequenceEndpoint,
+    _ParallelMessageChannel,
+    emit_parallel_sequence_event,
+    run_parallel_sequence_task,
+)
 import inspect
 
 from pytestflow.core.utils import get_data_for_gui
@@ -66,6 +77,157 @@ class Sequence:
         forced.__name__ = step_name + "_forced"
         self.add_step(forced)
 
+    def _start_parallel_sequence(
+        self,
+        node: ParallelSequenceStart,
+    ) -> tuple[ParallelSequenceHandle, PyTestflowState]:
+        call_id = uuid.uuid4()
+        channel = _ParallelMessageChannel()
+        endpoint = ParallelSequenceEndpoint(channel)
+        child_context = ptf_context.create_parallel_context(
+            parameters=node.parameters,
+            copy_fn=node.copy_fn,
+            parallel_endpoint=endpoint,
+            allow_parent_mutation=getattr(
+                node.sequence,
+                "allow_parent_mutation",
+                False,
+            ),
+        )
+        future = run_parallel_sequence_task.submit(
+            sequence=node.sequence,
+            execution_context=child_context,
+            parameters=node.parameters,
+        )
+        handle = ParallelSequenceHandle(
+            call_id=call_id,
+            sequence_name=node.sequence.name,
+            future=future,
+            channel=channel,
+        )
+        ptf_context.register_parallel_handle(
+            handle,
+            registry_name=node.registry_key,
+            store_as=node.store_as,
+        )
+
+        state = PyTestflowDone(
+            ptf_result={
+                "step_status": "parallel_sequence_started",
+                "step_type": "parallel_sequence_start",
+                "call_id": str(handle.call_id),
+                "sequence_name": handle.sequence_name,
+                "prefect_task_run_id": (
+                    str(handle.prefect_task_run_id)
+                    if handle.prefect_task_run_id is not None
+                    else None
+                ),
+                "handle_name": node.store_as,
+            },
+            message=f"Parallel sequence {handle.sequence_name} started",
+        )
+        emit_parallel_sequence_event(
+            ParallelSequenceEvent(
+                kind=ParallelSequenceEventKind.STARTED,
+                call_id=handle.call_id,
+                sequence_name=handle.sequence_name,
+                node_name=node.name,
+                status=handle.status(),
+                prefect_task_run_id=handle.prefect_task_run_id,
+                result=state,
+            )
+        )
+        return handle, state
+
+    def _wait_parallel_sequence(
+        self,
+        node: ParallelSequenceWait,
+    ) -> PyTestflowState:
+        handle = ptf_context.get_parallel_handle(node.registry_reference)
+        child_result = handle.result(timeout=node.timeout)
+        timed_out = bool(child_result.ptf_result.get("timed_out", False))
+        if not timed_out:
+            handle.mark_joined()
+
+        metadata = {
+            "step_type": "parallel_sequence_wait",
+            "call_id": str(handle.call_id),
+            "sequence_name": handle.sequence_name,
+            "prefect_task_run_id": (
+                str(handle.prefect_task_run_id)
+                if handle.prefect_task_run_id is not None
+                else None
+            ),
+            "child_status": child_result.ptf_result.get("step_status"),
+            "joined": handle.joined,
+            "timed_out": timed_out,
+        }
+        children = [(handle.sequence_name, child_result)]
+
+        if isinstance(child_result, PyTestflowError):
+            wait_result: PyTestflowState = PyTestflowError(
+                ptf_result={
+                    **metadata,
+                    "step_status": "parallel_sequence_error",
+                },
+                message=f"Parallel sequence {handle.sequence_name} errored",
+                children=children,
+            )
+        elif self._is_passed(child_result):
+            wait_result = PyTestflowPassed(
+                ptf_result={
+                    **metadata,
+                    "step_status": "parallel_sequence_completed",
+                },
+                message=f"Parallel sequence {handle.sequence_name} completed",
+                children=children,
+            )
+        else:
+            wait_result = PyTestflowFailed(
+                ptf_result={
+                    **metadata,
+                    "step_status": "parallel_sequence_failed",
+                },
+                message=f"Parallel sequence {handle.sequence_name} failed",
+                children=children,
+            )
+
+        emit_parallel_sequence_event(
+            ParallelSequenceEvent(
+                kind=ParallelSequenceEventKind.WAIT_COMPLETED,
+                call_id=handle.call_id,
+                sequence_name=handle.sequence_name,
+                node_name=node.name,
+                status=handle.status(),
+                prefect_task_run_id=handle.prefect_task_run_id,
+                result=wait_result,
+            )
+        )
+        return wait_result
+
+    def _parallel_control_error(
+        self,
+        node: ParallelSequenceStart | ParallelSequenceWait,
+        exception: Exception,
+    ) -> PyTestflowError:
+        return PyTestflowError(
+            ptf_result={
+                "step_status": "error",
+                "step_type": (
+                    "parallel_sequence_start"
+                    if isinstance(node, ParallelSequenceStart)
+                    else "parallel_sequence_wait"
+                ),
+                "error": str(exception),
+                "exception": exception,
+                "exception_type": (
+                    f"{type(exception).__module__}."
+                    f"{type(exception).__qualname__}"
+                ),
+            },
+            message=f"Parallel control node '{node.name}' failed: {exception}",
+        )
+
     def _exec_step(self, step_fn: Callable) -> tuple[str, PyTestflowState]:
         step_name = getattr(step_fn, "name", getattr(step_fn, "__name__", repr(step_fn)))
         print(f"➡️ Executing step: {step_name}")
@@ -73,8 +235,20 @@ class Sequence:
         if inspect.iscoroutinefunction(step_fn):
             raise TypeError("Async step functions are not supported in this base Sequence class.")
 
+        if isinstance(step_fn, ParallelSequenceStart):
+            try:
+                _, state = self._start_parallel_sequence(step_fn)
+            except Exception as exc:
+                state = self._parallel_control_error(step_fn, exc)
+
+        elif isinstance(step_fn, ParallelSequenceWait):
+            try:
+                state = self._wait_parallel_sequence(step_fn)
+            except Exception as exc:
+                state = self._parallel_control_error(step_fn, exc)
+
         # Check if the step is a Sequence
-        if isinstance(step_fn, Sequence):
+        elif isinstance(step_fn, Sequence):
             child_context = ptf_context.create_child_context(
                 allow_parent_mutation=step_fn.allow_parent_mutation
             )

@@ -177,12 +177,14 @@ class TestContext:
         self,
         handle: ParallelSequenceHandle,
         *,
+        registry_name: str | None = None,
         store_as: str | None = None,
     ) -> ParallelSequenceHandle:
         """Register a handle in the active sequence execution."""
         registry = self._current_parallel_registry()
         return registry.register(
             handle,
+            registry_name=registry_name,
             store_as=store_as,
             locals_store=self.locals,
         )

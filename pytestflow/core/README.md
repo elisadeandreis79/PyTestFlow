@@ -80,6 +80,50 @@ Message exchange is bidirectional. `handle.send()` writes to the child endpoint,
 and `handle.drain_messages()` reads messages sent by that endpoint. Payloads are
 deep-copied before enqueueing to avoid cross-thread mutation after send.
 
+### Start and wait control nodes
+
+Parallel calls are represented by orchestration nodes in the parent sequence,
+not by ordinary test steps:
+
+```python
+child = create_power_on_subsequence()
+start_power_on = ParallelSequenceStart(
+    child,
+    store_as="power_on_handle",
+    parameters={"rail": "VCORE"},
+)
+
+parent = TestSequence(
+    name="MotherboardTestSequence",
+    main_steps=[
+        start_power_on,
+        run_other_measurements,
+        ParallelSequenceWait(start_power_on),
+    ],
+)
+```
+
+`ParallelSequenceStart` captures the context snapshot, submits the module-level
+Prefect runner task, registers its handle, and immediately returns a
+`parallel_sequence_started` state. `ParallelSequenceWait` resolves the
+authoritative registry entry, marks a terminal handle joined, and nests the
+child sequence state under its own result. Consequently, a failed child also
+fails the wait node and parent aggregation.
+
+A wait node may reference its start node, a handle, a call UUID, or a registered
+name. Referencing the start node works without `store_as`; the latter is only
+needed when user steps should access the handle through `ptf_context.locals`.
+
+External GUI integrations can subscribe without importing engine internals:
+
+```python
+unsubscribe = register_parallel_sequence_hook(on_parallel_event)
+```
+
+Hooks receive `ParallelSequenceEvent` instances for `STARTED` and
+`WAIT_COMPLETED`. Hook failures are reported as warnings and do not alter test
+execution.
+
 ## Step wrapper
 
 `@step` wraps a plain function with the `Step` class, which in turn wraps the

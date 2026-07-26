@@ -1,0 +1,24 @@
+Test loading failed: Error: Process exited with code 9009: Python non � stato trovato; eseguire senza argomenti da installare dal Microsoft Store o disabilitare questo collegamento da Impostazioni > App > Impostazioni app avanzate > alias di esecuzione dell'app.
+
+Error: Process exited with code 9009: Python non � stato trovato; eseguire senza argomenti da installare dal Microsoft Store o disabilitare questo collegamento da Impostazioni > App > Impostazioni app avanzate > alias di esecuzione dell'app.
+
+	at ChildProcess.<anonymous> (c:\Users\filip\.vscode\extensions\littlefoxteam.vscode-python-test-adapter-0.8.2\out\src\processRunner.js:27:32)
+	at Object.onceWrapper (node:events:631:26)
+	at ChildProcess.emit (node:events:509:28)
+	at maybeClose (node:internal/child_process:1124:16)
+	at ChildProcess._handle.onexit (node:internal/child_process:306:5)
+
+
+Stacktrace: 
+	at S.syncTopLevel (c:\Users\filip\.vscode\extensions\ms-vscode.test-adapter-converter-0.2.1\out\extension.js:6:3)
+	at Pp.value (c:\Users\filip\.vscode\extensions\ms-vscode.test-adapter-converter-0.2.1\out\extension.js:3:4541)
+	at T._deliver (file:///c:/Users/filip/AppData/Local/Programs/Microsoft%20VS%20Code/1b6a188127/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:431:3244)
+	at T.fire (file:///c:/Users/filip/AppData/Local/Programs/Microsoft%20VS%20Code/1b6a188127/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:431:3562)
+	at Pp.value (c:\Users\filip\.vscode\extensions\hbenl.vscode-test-explorer-2.22.1\out\hub\testHub.js:53:43)
+	at T._deliver (file:///c:/Users/filip/AppData/Local/Programs/Microsoft%20VS%20Code/1b6a188127/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:431:3244)
+	at T._deliverQueue (file:///c:/Users/filip/AppData/Local/Programs/Microsoft%20VS%20Code/1b6a188127/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:431:3333)
+	at T.fire (file:///c:/Users/filip/AppData/Local/Programs/Microsoft%20VS%20Code/1b6a188127/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:431:3667)
+	at PythonTestAdapter.<anonymous> (c:\Users\filip\.vscode\extensions\littlefoxteam.vscode-python-test-adapter-0.8.2\out\src\pythonTestAdapter.js:89:35)
+	at Generator.throw (<anonymous>)
+	at rejected (c:\Users\filip\.vscode\extensions\littlefoxteam.vscode-python-test-adapter-0.8.2\node_modules\tslib\tslib.js:115:69)
+	at process.processTicksAndRejections (node:internal/process/task_queues:104:5)

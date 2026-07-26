@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import inspect
+import warnings
+from collections.abc import Callable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -11,8 +14,10 @@ from traceback import format_exception
 from typing import Any
 from uuid import UUID, uuid4
 
+from prefect import task
 from prefect.states import State
 
+from pytestflow.core.context import ExecutionContext, ptf_context
 from pytestflow.core.pytestflow_states import PyTestflowError, PyTestflowState
 
 
@@ -24,6 +29,68 @@ class ParallelCallStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+class ParallelSequenceEventKind(str, Enum):
+    """Lifecycle points exposed to GUI and other external integrations."""
+
+    STARTED = "started"
+    WAIT_COMPLETED = "wait_completed"
+
+
+@dataclass(frozen=True)
+class ParallelSequenceEvent:
+    kind: ParallelSequenceEventKind
+    call_id: UUID
+    sequence_name: str
+    node_name: str
+    status: ParallelCallStatus
+    prefect_task_run_id: UUID | None = None
+    result: PyTestflowState | None = None
+    timestamp: datetime = field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+
+
+_parallel_sequence_hooks: list[Callable[[ParallelSequenceEvent], None]] = []
+_parallel_sequence_hooks_lock = RLock()
+
+
+def register_parallel_sequence_hook(
+    callback: Callable[[ParallelSequenceEvent], None],
+) -> Callable[[], None]:
+    """
+    Subscribe to start/wait lifecycle events.
+
+    Returns an unsubscribe callback so external GUI integrations do not need to
+    depend on internal engine objects.
+    """
+    if not callable(callback):
+        raise TypeError("parallel sequence hook must be callable")
+    with _parallel_sequence_hooks_lock:
+        _parallel_sequence_hooks.append(callback)
+
+    def unsubscribe() -> None:
+        with _parallel_sequence_hooks_lock:
+            if callback in _parallel_sequence_hooks:
+                _parallel_sequence_hooks.remove(callback)
+
+    return unsubscribe
+
+
+def emit_parallel_sequence_event(event: ParallelSequenceEvent) -> None:
+    """Notify integrations without allowing hook failures to stop a test run."""
+    with _parallel_sequence_hooks_lock:
+        callbacks = tuple(_parallel_sequence_hooks)
+    for callback in callbacks:
+        try:
+            callback(event)
+        except Exception as exc:
+            warnings.warn(
+                f"Parallel sequence lifecycle hook failed: {exc}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
 
 @dataclass(frozen=True)
@@ -87,6 +154,139 @@ class ParallelSequenceEndpoint:
         return self._channel.drain_for_child()
 
 
+@dataclass
+class ParallelSequenceStart:
+    """Engine-recognized control node that submits a child sequence."""
+
+    sequence: Any
+    store_as: str | None = None
+    parameters: Mapping[str, Any] | None = None
+    copy_fn: Callable[[Any], Any] = deepcopy
+    name: str | None = None
+    static_uuid: UUID | None = None
+    _registry_key: str = field(
+        default_factory=lambda: f"parallel-start-{uuid4()}",
+        init=False,
+        repr=False,
+    )
+
+    def __post_init__(self) -> None:
+        sequence_name = getattr(self.sequence, "name", None)
+        sequence_run = getattr(self.sequence, "run", None)
+        if not isinstance(sequence_name, str) or not sequence_name.strip():
+            raise TypeError("parallel sequence must have a non-empty name")
+        if not callable(sequence_run):
+            raise TypeError("parallel sequence must provide a callable run()")
+        if getattr(self.sequence, "allow_parent_mutation", False):
+            raise ValueError(
+                "allow_parent_mutation=True is not supported for parallel "
+                "subsequences"
+            )
+        if self.store_as is not None and (
+            not isinstance(self.store_as, str) or not self.store_as.strip()
+        ):
+            raise ValueError("store_as must be a non-empty string or None")
+        if not callable(self.copy_fn):
+            raise TypeError("copy_fn must be callable")
+
+        self.parameters = dict(self.parameters or {})
+        self.name = self.name or f"start_{sequence_name}"
+
+    @property
+    def registry_key(self) -> str:
+        return self._registry_key
+
+
+@dataclass
+class ParallelSequenceWait:
+    """Engine-recognized control node that collects a submitted child."""
+
+    reference: ParallelSequenceStart | ParallelSequenceHandle | UUID | str
+    timeout: float | None = None
+    name: str | None = None
+    static_uuid: UUID | None = None
+
+    def __post_init__(self) -> None:
+        if self.timeout is not None and self.timeout < 0:
+            raise ValueError("timeout must be non-negative or None")
+        if not isinstance(
+            self.reference,
+            (ParallelSequenceStart, ParallelSequenceHandle, UUID, str),
+        ):
+            raise TypeError(
+                "wait reference must be a start node, handle, UUID, or name"
+            )
+        if isinstance(self.reference, str) and not self.reference.strip():
+            raise ValueError("wait reference name must not be empty")
+
+        if self.name is None:
+            if isinstance(self.reference, ParallelSequenceStart):
+                suffix = self.reference.sequence.name
+            elif isinstance(self.reference, ParallelSequenceHandle):
+                suffix = self.reference.sequence_name
+            else:
+                suffix = str(self.reference)
+            self.name = f"wait_{suffix}"
+
+    @property
+    def registry_reference(
+        self,
+    ) -> ParallelSequenceHandle | UUID | str:
+        if isinstance(self.reference, ParallelSequenceStart):
+            return self.reference.registry_key
+        return self.reference
+
+
+def start_parallel_sequence(
+    sequence: Any,
+    *,
+    store_as: str | None = None,
+    parameters: Mapping[str, Any] | None = None,
+    copy_fn: Callable[[Any], Any] = deepcopy,
+    name: str | None = None,
+) -> ParallelSequenceStart:
+    return ParallelSequenceStart(
+        sequence=sequence,
+        store_as=store_as,
+        parameters=parameters,
+        copy_fn=copy_fn,
+        name=name,
+    )
+
+
+def wait_for_parallel_sequence(
+    reference: ParallelSequenceStart | ParallelSequenceHandle | UUID | str,
+    *,
+    timeout: float | None = None,
+    name: str | None = None,
+) -> ParallelSequenceWait:
+    return ParallelSequenceWait(
+        reference=reference,
+        timeout=timeout,
+        name=name,
+    )
+
+
+@task(name="PyTestFlow parallel sequence", persist_result=False)
+def run_parallel_sequence_task(
+    sequence: Any,
+    execution_context: ExecutionContext,
+    parameters: Mapping[str, Any] | None = None,
+) -> PyTestflowState:
+    """Prefect task boundary used by ParallelSequenceStart."""
+    with ptf_context.bind(execution_context):
+        run_flow = sequence.run
+        underlying = getattr(run_flow, "fn", run_flow)
+        signature = inspect.signature(underlying)
+        is_prefect_flow = hasattr(run_flow, "fn")
+        call_kwargs: dict[str, Any] = {}
+        if "parameters" in signature.parameters:
+            call_kwargs["parameters"] = dict(parameters or {})
+        if is_prefect_flow:
+            call_kwargs["return_state"] = True
+        return run_flow(**call_kwargs)
+
+
 class ParallelSequenceHandle:
     """
     Stable PyTestFlow interface around an internal Prefect future.
@@ -125,6 +325,12 @@ class ParallelSequenceHandle:
         self._resolving = False
         self._resolved_result: PyTestflowState | None = None
         self._resolution_exception: Exception | None = None
+        self._joined = False
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> ParallelSequenceHandle:
+        """Handles are thread-safe identity objects within the in-process runner."""
+        memo[id(self)] = self
+        return self
 
     @classmethod
     def create(
@@ -248,6 +454,19 @@ class ParallelSequenceHandle:
         with self._condition:
             return self._resolution_exception
 
+    @property
+    def joined(self) -> bool:
+        with self._condition:
+            return self._joined
+
+    def mark_joined(self) -> None:
+        if not self.done():
+            raise RuntimeError(
+                "parallel sequence handle cannot be joined before completion"
+            )
+        with self._condition:
+            self._joined = True
+
     def _future_state(self) -> Any | None:
         try:
             return getattr(self._future, "state", None)
@@ -345,11 +564,16 @@ class _ParallelSequenceRegistry:
         self,
         handle: ParallelSequenceHandle,
         *,
+        registry_name: str | None = None,
         store_as: str | None = None,
         locals_store: dict[str, Any] | None = None,
     ) -> ParallelSequenceHandle:
         if not isinstance(handle, ParallelSequenceHandle):
             raise TypeError("handle must be a ParallelSequenceHandle")
+        if registry_name is not None and (
+            not isinstance(registry_name, str) or not registry_name.strip()
+        ):
+            raise ValueError("registry_name must be a non-empty string or None")
         if store_as is not None and (
             not isinstance(store_as, str) or not store_as.strip()
         ):
@@ -359,18 +583,23 @@ class _ParallelSequenceRegistry:
             existing = self._handles.get(handle.call_id)
             if existing is not None and existing is not handle:
                 raise ValueError(f"duplicate parallel call_id: {handle.call_id}")
-            if store_as is not None:
-                existing_id = self._aliases.get(store_as)
+            aliases = tuple(
+                alias
+                for alias in (registry_name, store_as)
+                if alias is not None
+            )
+            for alias in aliases:
+                existing_id = self._aliases.get(alias)
                 if existing_id is not None and existing_id != handle.call_id:
                     raise ValueError(
-                        f"parallel handle name '{store_as}' is already registered"
+                        f"parallel handle name '{alias}' is already registered"
                     )
 
             self._handles[handle.call_id] = handle
-            if store_as is not None:
-                self._aliases[store_as] = handle.call_id
-                if locals_store is not None:
-                    locals_store[store_as] = handle
+            for alias in aliases:
+                self._aliases[alias] = handle.call_id
+            if store_as is not None and locals_store is not None:
+                locals_store[store_as] = handle
             return handle
 
     def get(
@@ -405,3 +634,6 @@ class _ParallelSequenceRegistry:
 
     def outstanding(self) -> tuple[ParallelSequenceHandle, ...]:
         return tuple(handle for handle in self.all() if not handle.done())
+
+    def unjoined(self) -> tuple[ParallelSequenceHandle, ...]:
+        return tuple(handle for handle in self.all() if not handle.joined)
